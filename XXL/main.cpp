@@ -1,153 +1,145 @@
-#include <iostream>
-#include <vector>
+/*实现消消乐最优解
+算法思想：
+深度搜索+回溯剪枝
+
+数据结构：
+利用map<string, prestate>记录状态情况，其中
+1. string = 字符串化 + 下一个交换点的坐标以及交换的方向，这样可以形成唯一的key。
+2. perstate = 前一个状态的string 和 当前得到的分数，用一个结构体表示即可。
+
+算法步骤：
+1. 每次递归都找出那个时候矩阵的所有可交换点，进行每个点的深度搜索
+2. 递归结束条件有两个
+	①没有可交换点，回溯
+	②剪枝，查看map是否有相同状态但分数更高的，如果有更高的，结束递归进行回溯
+	  否则，替换掉分数低的进行下一步递归。
+3. 判断顶点周围是否有可以形成消去的条件，可以通过判断整行可否消去或者整列可否消去
+4. 每次消去之后上方的方块会掉下来，这时掉下来之后还要多一次判断是否可以自动再消，直到确认不能再消
+5. 进入下一次递归之前要把当前状态记录到map上。
+
+优化细节：
+1. 字符0（表示空）不能交换，相同颜色交换无意义，交换后无消去情况的话不能交换
+2. 深度搜索利用链表来存储可交换点，通过增删控制递归
+
+*/
+
+#include <iostream>   
+#include <string>
+#include <list>
+#include <map>
+#include<algorithm>//sort函数包含的头文件
 
 using namespace std;
 
-class Point
+const int ROW = 8;        //行
+const int COLUMN = 4;     //列
+
+typedef struct state   
+{ 
+	int current_score;   //当前分数
+	string previous;     //记录上一个状态矩阵 + 和交换的点
+}state;
+
+typedef struct point
 {
-public:
-	int x, y;  //记录可交换的点的坐标，说白了就是二维数组的下标
-	int direction;  //交换方向，只有下和右，因为从左上角开始的
-	Point(int x0 = 0, int y0 = 0, int dir = 0){
-		x = x0;
-		y = y0;
-		direction = dir;
-	}
-};
+	int i, j; //坐标
+	int dir;   //方向
+}point;
 
-class XXL
-{
-public:
-	XXL(int m0=8, int n0=4, int k0=4) {  //构造函数
-		M = m0;
-		N = n0;
-		K = k0;
-		score = 0;
-		matrix = new int *[M];
-		for (int i = 0; i < M; i++)
+map<string, state> mymap;   //map存储所有不重复最优记录,如果在递归中发现有相同的key，更新state
+
+void str_to_mat(string str, char mat[][COLUMN]) {    //字符串转二维字符矩阵
+	for (int i = 0; i < ROW; i++)
+	{
+		for (int j = 0; j < COLUMN; j++)
 		{
-			matrix[i] = new int[N];
+			mat[i][j] = str[i*COLUMN + j];
 		}
 	}
-	void copy_matrix(int a[][4]) {     //赋值函数
-		for (int i = 0; i < M; i++)
+}
+
+void mat_to_str(string str, char mat[][COLUMN]) {    //二维字符矩阵转字符串
+	for (int i = 0; i < ROW; i++)
+	{
+		for (int i = 0; i < COLUMN; i++)
 		{
-			for (int j = 0; j < N; j++)
+			for (int j = 0; j < COLUMN; j++)
 			{
-				matrix[i][j] = a[i][j];
+				str[i*COLUMN + j] = mat[i][j];
 			}
 		}
 	}
-	// 输出流<<重载，因为friend才可以访问XXL里面的私密数据
-	friend ostream & operator<<(ostream &out, const XXL& xxl) {
-		for (int i = 0; i < xxl.M; i++)
+}
+
+void print(string str) {        //输出状态矩阵
+	for (int i = 0; i < ROW; i++) {
+		for (int j = 0; j < COLUMN; j++)
 		{
-			for (int j = 0; j < xxl.N; j++)
-			{
-				out << xxl.matrix[i][j] << ' ';
-			}
-			out << endl;
+			cout << str[i*COLUMN+j] << ' ';
 		}
-		return out;
+		cout << endl;
 	}
+}
 
-	bool find_commutative_point(int i, int j, int dir, int matrix[][4]) {  //判断该点交换后有无结果
-		if (dir == 1) {  //向右交换
-			if (j+1 <N && matrix[i][j+1] > 0) //如果可交换
-			{
-				if (j + 3 < N) { //右边至少得有两个相同的
-					if (matrix[i][j] == matrix[i][j+2] && matrix[i][j] == matrix[i][j+3])
-					{
-						return true;  //行有三个或以上，可交换
-					}
-				}
-				if (i + 2 < M)
-				{
-					if (matrix[i][j] == matrix[i + 1][j + 1] && matrix[i][j] == matrix[i + 2][j + 1]) {
-						return true; //列有三个或以上，可交换
-					}
-				}
-			}
-		}
-		else  //向下交换
-		{
-			if (i + 1 < M && matrix[i + 1][j] > 0) { //如果可交换
-				if (i + 3 < M) { //下边至少得有两个相同的
-					if (matrix[i][j] == matrix[i + 2][j] && matrix[i][j] == matrix[i + 3][j]) {
-						return true;  //交换后列满足条件
-					}
-				}
-				if (j + 2 < N) {
+//判断交换后的点可否消除，如果可以，返回消除的分数，如果不行，返回零，并将消去后的记录保存到map里头。
+int clear(string pre_key, int i, int j) {
+	int score;
+	return score;
+}
 
-				}
-			}
-		}
-		return false;
+//判断p(i,j)能否向dir方向交换
+bool is_exchange(string pre_key, int i, int j, int dir) {
+	//判断p(i,j)可否向右交换
+	if (dir == 1 
+		&& j+1 < COLUMN 
+		&& pre_key[i*COLUMN+j] != '0' 
+		&& pre_key[i*COLUMN +j+1] != '0' 
+		&& pre_key[i*COLUMN + j] != pre_key[i*COLUMN + j+1]) 
+	{
+
 	}
+	//判断p(i,j)可否向下交换
+	if (dir == 2
+		&& i+1 < ROW
+		&& pre_key[i*COLUMN+j] != '0' 
+		&& pre_key[(1+1)*COLUMN + j] != '0'
+		&& pre_key[i*COLUMN + j] != pre_key[(1 + 1)*COLUMN + j])
+	{
 
-	void xiao(int m[][4]) {
-		vector<Point> points;  //记录当前可交换的点
-		int matrix[8][4];      //进行下一步时记录当前状态
-		for (int i = 0; i < M; i++) {
-			for (int j = 0; j < N; j++)
-			{
-				matrix[i][j] = m[i][j];
-			}
-		}
+	}
+	return false;
+}
 
-		for (int i = 0; i < M; i++) //将所有可交换点找出来，然后进行深度搜索
-		{
-			for (int j = 0; j < N; j++)
-			{
-				if (matrix[i][j] > 0) { //进行右交换和下交换，判断是否可以进行消消乐
-					if (find_commutative_point(i, j, 1, matrix)) {
-						points.push_back(Point(i,j,1));
-					}
-					if (find_commutative_point(i,j,2, matrix))
-					{
-						points.push_back(Point(i, j, 2));
-					}
+void DFS(string pre_key) {
+	list<point> list;  //记录所有可交换的节点
+	string now_key;
+	for (int i = 0; i < ROW; i++) {
+		for (int j = 0; j < COLUMN; j++) {
+			if (is_exchange(pre_key, i, j, 1)) {  //判断是否可以往右交换
+				now_key = pre_key;   //临时字符串now_key用来处理
+				int score = clear(now_key, i, j);
+				if (score) {       //判断能否消去并消去
+					state now_state;
+					now_state.current_score = score;
+					now_state.previous = pre_key;
+
 				}
 			}
-		}
-		for (int i = 0; i < points.size(); i++) {
-			xiao(matrix);
+			if (is_exchange(pre_key, i, j, 2)) {  //判断是否可以往下交换
+
+			}
 		}
 	}
-
-	~XXL() {  //销毁动态数组
-		for (int i = 0; i < M; i++)
-		{
-			delete []matrix[i];
-		}
-		delete []matrix;
-	}
-
-private:
-	int M;        //行
-	int N;        //列
-	int K;        //种类
-	int **matrix; //消消乐矩阵
-	int score;    //当前得分
-};
+}
 
 int main() {
-	int m = 8;
-	int n = 4;
-	int k = 4;
-	int matrix[8][4] = {
-		{3, 3, 4, 3},
-		{3, 2, 3, 3},
-		{2, 4, 3, 4},
-		{1, 3, 4, 3},
-		{3, 3, 1, 1},
-		{3, 4, 3, 3},
-		{1, 4, 4, 3},
-		{1, 2, 3, 2},
-	};
-	XXL xxl(m, n, k);
-	xxl.copy_matrix(matrix);
-	cout << xxl;
+	//字符串最后三位是 i+j+交换方向，000表示初始状态
+	string str0 = "33433233243413433311343314431232000"; //矩阵的字符串表示
+	state mat;
+	mat.previous = "";
+	mat.current_score = 0;
+	mymap[str0] = mat;  //map里面记录最原始的矩阵
+	print(str0);
 	getchar();
 	return 0;
 }
