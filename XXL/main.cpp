@@ -1,11 +1,10 @@
-/*实现消消乐最优解
-算法思想：
-深度搜索+回溯剪枝
+/************************实现消消乐最优解********************************
+算法思想：深度搜索+回溯剪枝
 
 数据结构：
-利用map<string, prestate>记录状态情况，其中
-1. string = 字符串化 + 下一个交换点的坐标以及交换的方向，这样可以形成唯一的key。
-2. state = 前一个状态的string 和 当前得到的分数，用一个结构体表示即可。
+利用map<string, state>记录状态情况，其中
+1. string = 消去操作的矩阵的字符串化，可以形成唯一的key。
+2. state =  记录一些回溯信息，用一个结构体表示即可。
 
 算法步骤：
 1. 每次递归都找出那个时候矩阵的所有可交换点，进行每个点的深度搜索
@@ -14,55 +13,77 @@
 	②剪枝，查看map是否有相同状态但分数更高的，如果有更高的，结束递归进行回溯
 	  否则，替换掉分数低的进行下一步递归。
 3. 判断顶点周围是否有可以形成消去的条件，可以通过判断整行可否消去或者整列可否消去
-4. 每次消去之后上方的方块会掉下来，这时掉下来之后还要多一次判断是否可以自动再消，直到确认不能再消
-5. 进入下一次递归之前要把当前状态记录到map上。
+4. 每次消去之后上方的方块会掉下来
+5. 这时掉下来之后还要多一次判断是否可以自动再消，直到确认不能再消
+6. 进入下一次递归之前要把当前状态记录到map上。
 
 优化细节：
-1. 字符0（表示空）不能交换，相同颜色交换无意义，交换后无消去情况的话不能交换
-2. 深度搜索利用链表来存储可交换点，通过增删控制递归
+1. 字符0（表示空）不能交换，相同颜色交换无意义，交换后无消去情况的话直接返回
 
-*/
 
-#include <iostream>   
-#include <string> 
-#include <map> 
+**************************讲解结束******************************/
+
+#include <iostream>  //IO流
+#include <string>    //图的字符串表示
+#include <map>       //记录不重复记录 // 剪枝用
 #include <algorithm> //交换操作
-#include <time.h>
+#include <time.h>    //统计时间用
+#include <vector>    //输出用
 
 using namespace std;
 
-
 //---------------变量声明部分--------------------//
+
 const int ROW = 8;        //行
 const int COLUMN = 4;     //列
-int max_score;            //最大得分
-string max_str;           //最大得分的字符串
+int       max_K;          //最大步骤
+int       max_score;      //最大得分
+string    max_str;        //最大得分的字符串
 
 typedef struct state   
 { 
-	int current_score;   //当前得分
+	int score;           //当前得分
 	int K;               //当前步数
 	int i, j;            //当前可交换点坐标
 	int dir;             //当前交换方向
-	string previous;     //记录上一个状态矩阵
+	string previous;     //上一个状态矩阵
 }state;
 
 map<string, state> mymap;   //map存储所有不重复最优记录,如果在递归中发现有相同的key，更新state
 
 //函数声明，第一次编译才能通过
-void DFS(string pre_key);                       //对所有可交换点深度遍历
-int is_clear(string& now_key, int i0, int j0);  //对p(i0,j0)进行消去操作
-void update_key(string& now_key);               //对消去后的矩阵进行更新
-void print(string str);                         //输出函数
+void DFS(string pre_key);                        //对所有可交换点深度遍历
+int  is_clear(string& now_key, int i0, int j0);  //对p(i0,j0)进行消去操作
+void update_key(string& now_key);                //对消去后的矩阵进行更新
+void print(string str);                          //输出函数
 void str_to_mat(string str, char mat[][COLUMN]); 
 void mat_to_str(char mat[][COLUMN], string & str);
-int get_point(int count);                       //根据消去的个数判断一步得到的分数，可以统计哪一步最赚的
-bool is_exchange(string pre_key, int i, int j, int dir);  //判断p(i,j)是否可以往dir方向交换
-void clear(string pre_key, int i0, int j0, int dir); //核心函数，综合以上函数
-
+int  get_point(int count);                                 //根据消去的个数判断一步得到的分数，可以统计哪一步最赚的
+bool is_exchange(string pre_key, int i, int j, int dir);   //判断p(i,j)是否可以往dir方向交换
+void clear(string pre_key, int i0, int j0, int dir);       //核心函数，综合以上函数
+int check(string& now_key);                                //消去之后还要判断
 													 
 //---------------------------定义部分--------------------------------------//
 void print(string str) {        //输出状态矩阵
+	vector<state> route;
+	state s = mymap[str];
+	while (s.K > 0)
+	{
+		route.push_back(s);
+		s = mymap[s.previous];
+	}
+	
+	for (int i = route.size()-1; i >= 0; i--)
+	{
+		for (int j = 0; j < ROW; j++) {
+			for (int k = 0; k < COLUMN; k++)
+			{
+				cout << route[i].previous[j*COLUMN + k] << ' ';
+			}
+			cout << endl;
+		}
+		cout << "第"<<route[i].K<<"步，节点(" << route[i].i << "," << route[i].j << ")向" << route[i].dir << "交换,得分为"<<route[i].score<< endl;
+	}
 	for (int i = 0; i < ROW; i++) {
 		for (int j = 0; j < COLUMN; j++)
 		{
@@ -99,12 +120,17 @@ int get_point(int count) {
 	return 0;
 }
 
-int duta(string& now_key) {
+int check(string& now_key) {
+	int score = 0;
 	for (int i = 0; i < ROW; i++) {
 		for (int j = 0; j < COLUMN; j = j ++) {
-			if (now_key[i*COLUMN+j] != '0' && is_clear(now_key, i, j)) {
-				update_key(now_key);
-				return 1;
+			if (now_key[i*COLUMN+j] != '0' ) {
+				score = is_clear(now_key, i, j);
+				if (score > 0)
+				{
+					update_key(now_key);
+					return score;
+				}
 			}
 		}
 	}
@@ -234,13 +260,13 @@ void clear(string pre_key, int i0, int j0, int dir) {  //pre_key是形参，不影响上
 	state pre_state = mymap[pre_key];
 	state now_state;
 	now_state.previous = pre_key;
-	now_state.current_score = pre_state.current_score;
+	now_state.score = pre_state.score;
 	now_state.K = pre_state.K + 1;
 	now_state.i = i0;
 	now_state.j = j0;
 	now_state.dir = dir;
 
-
+	if (now_state.K >= max_K) return;
 	//----------开始消去操作-----------------//
 	string now_key = pre_key;  //新的状态字符串初始化为上一个状态
 
@@ -261,11 +287,17 @@ void clear(string pre_key, int i0, int j0, int dir) {  //pre_key是形参，不影响上
 	if (score > 0) {  //说明是一个有效交换点，更新map，进行下一步DFS查找
 		//进行将中空的部分用上面的方块压下来
 		update_key(now_key);
-		score += duta(now_key);
-		now_state.current_score = now_state.current_score + score;
-		if (max_score < now_state.current_score)
+		int temp = check(now_key);
+		while (temp)
 		{
-			max_score = now_state.current_score;
+			score += temp;
+			temp = check(now_key);
+		}
+		
+		now_state.score = now_state.score + score;
+		if (max_score < now_state.score)
+		{
+			max_score = now_state.score;
 			max_str = now_key;
 		}
 		if (mymap.count(now_key) == 0)  //如果没有该记录，保存该记录,进行递归
@@ -273,7 +305,7 @@ void clear(string pre_key, int i0, int j0, int dir) {  //pre_key是形参，不影响上
 			mymap[now_key] = now_state;
 			DFS(now_key);
 		}
-		else  if (mymap[now_key].current_score < now_state.current_score) { //如果有该记录，但是比较小，更新并递归
+		else  if (mymap[now_key].score < now_state.score) { //如果有该记录，但是比较小，更新并递归
 			mymap[now_key] = now_state;
 			DFS(now_key);
 		}
@@ -317,28 +349,31 @@ void DFS(string pre_key) {
 }
 
 int main() {
+	//-------------------初始化--------------------------
+
 	string str0 = "33433233243413433311343314431232"; //矩阵的字符串表示 
 	max_score = 0;                //初始化最大得分
+	max_K = 8;
+
 	state state0;                 //初始状态
 	state0.previous = "";         //无前状态
-	state0.current_score = 0;     //初始分数为0
+	state0.score = 0;             //初始分数为0
 	state0.K = 0;                 //初始步数为0
 	state0.i = -1;                //-1代表初始化
 	state0.j = -1;                
 	state0.dir = 0;               //0代表无方向
 	mymap[str0] = state0;         //map里面记录原始的矩阵
-	cout << "-----------------------初始矩阵" << endl;
-	print(str0);
-	cout << "-----------------------结果" << endl;
+	
+	//------------------------运行-----------------------
+	
 	clock_t start = clock();
 	DFS(str0);
 	clock_t end = clock();
 	cout << "运行时间为：" << (double)(end - start) << "ms" << endl;
-	cout << "总共有"<< mymap.size()<< "个节点" <<endl;
-	cout << "最高分是: "<< max_score << endl;
-	cout << "经过了 " << mymap[max_str].K << " 步交换"<<endl;
-	cout << "-----------------------最终矩阵为" << endl;
-	print(max_str);
+
+	//------------------------输出-----------------------
+
+	print(max_str);    //输出结果
 	getchar();
 	return 0;
 }
