@@ -65,6 +65,7 @@ int check(string& now_key);                                //消去之后还要判断
 													 
 //---------------------------定义部分--------------------------------------//
 void print(string str) {        //输出状态矩阵
+	cout << mymap.size() << endl;
 	vector<state> route;
 	state s = mymap[str];
 	while (s.K > 0)
